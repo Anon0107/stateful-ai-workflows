@@ -1,0 +1,4 @@
+langgraph
+anthropic
+pypdf
+python-dotenv
