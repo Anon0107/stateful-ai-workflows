@@ -2,3 +2,5 @@ langgraph
 anthropic
 pypdf
 python-dotenv
+voyageai
+chromadb
