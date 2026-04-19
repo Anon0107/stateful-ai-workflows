@@ -29,6 +29,18 @@ START → extract → classify → researchpaper → summary → END
 
 **Concepts demonstrated:** LLM-driven conditional routing, PDF text extraction, structured JSON outputs via assistant prefill, input/output schemas
 
+---
+
+### research_workflow.py
+A multi-step research pipeline that takes a user question, breaks it into sub-questions, retrieves relevant documents from a ChromaDB vector store via Voyage AI embeddings, synthesizes findings, and generates a cited report.
+
+**Graph flow:**
+```
+START → breaks → rag → synthesis → report → END
+```
+
+**Concepts demonstrated:** RAG inside a LangGraph graph, Voyage AI embeddings, ChromaDB Cloud integration, input/output schemas, multi-node state accumulation
+
 ## Setup
 
 ```bash
@@ -55,6 +67,8 @@ langgraph
 anthropic
 pypdf
 python-dotenv
+voyageai
+chromadb
 ```
 
 ## Architecture
