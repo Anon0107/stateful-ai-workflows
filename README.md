@@ -36,10 +36,10 @@ A multi-step research pipeline that takes a user question, breaks it into sub-qu
 
 **Graph flow:**
 ```
-START → breaks → rag → synthesis → report → END
+START → breaks → rag → synthesis → [HITL interrupt] → report → END
 ```
 
-**Concepts demonstrated:** RAG inside a LangGraph graph, Voyage AI embeddings, ChromaDB Cloud integration, input/output schemas, multi-node state accumulation
+**Concepts demonstrated:** RAG inside a LangGraph graph, Voyage AI embeddings, ChromaDB Cloud integration, input/output schemas, multi-node state accumulation, human-in-the-loop interrupts, checkpointing with MemorySaver
 
 ## Setup
 
