@@ -6,6 +6,8 @@ from langgraph.graph import StateGraph, START, END
 from typing import TypedDict
 from dotenv import load_dotenv
 
+from langgraph.checkpoint.memory import MemorySaver
+
 load_dotenv()
 ant_client = anthropic.Anthropic()
 vo_client = voyageai.Client()
@@ -43,7 +45,6 @@ def breaks(state: inputstate)-> dict:
     system = 'You are a helpful assistant that breaks a question in more specific sub-questions if necessary. Respond ONLY with a python list in the given format. DO NOT explain. DO NOT wrap output in markdown code fences.'
     prompt = f"<question>{state['question']}</question><format>[sub_question1, sub_question2]</format>"
     result = claude(system,prompt)
-    print(result)
     sub_qns = result.split(', ')
     for i in range(len(sub_qns)):
         sub_qns[i] = sub_qns[i].strip('"[] '+"'")
@@ -92,10 +93,28 @@ graph.add_edge('synthesis','report')
 graph.add_edge('report',END)
 
 app = graph.compile()
-
-
 question = input('Question: ')
 coll = input('Collection name: ')
 
 result = app.invoke({'question':question, 'coll_name':coll})
+
+# 1. compile with checkpointer + interrupt
+checkpointer = MemorySaver()
+app = graph.compile(checkpointer=checkpointer, interrupt_before=['report'])
+
+# 2. first invoke — graph halts before report
+config = {'configurable': {'thread_id': '1'}}
+app.invoke({'question': question, 'coll_name': coll}, config=config)
+
+# 3. inspect state, optionally edit it
+current_state = app.get_state(config)
+print(current_state.values['synthesis'])
+
+approval = input('Approve? (y/edit): ')
+if approval != 'y':
+    edited = input('Enter revised synthesis: ')
+    app.update_state(config, {'synthesis': edited})
+
+# 4. resume — pass None to continue from checkpoint
+result = app.invoke(None, config=config)
 print(result)
