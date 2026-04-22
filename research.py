@@ -5,6 +5,7 @@ import os
 from langgraph.graph import StateGraph, START, END
 from typing import TypedDict
 from dotenv import load_dotenv
+import json
 
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -36,10 +37,11 @@ class overallstate(TypedDict):
     sub_questions: list[str]
     rag_results: dict[list[str]]
     synthesis: str
-    report: str
+    result: str
 
 class outputstate(TypedDict):
-    report: str
+    result: str
+
 
 def breaks(state: inputstate)-> dict:
     system = 'You are a helpful assistant that breaks a question in more specific sub-questions if necessary. Respond ONLY with a python list in the given format. DO NOT explain. DO NOT wrap output in markdown code fences.'
@@ -77,44 +79,96 @@ def report(state: overallstate)-> dict:
     )
     prompt = f"Write a research report based on this synthesis:\n{state['synthesis']}\nCite sources using these docs:\n{sources}"
     response = claude(system,prompt)
-    return {'report': response}
+    return {'result': response}
 
-graph = StateGraph(overallstate,input_schema=inputstate,output_schema=outputstate)
+def retrieve(state: inputstate)-> dict:
+    embeddings = vo_client.embed([state['question']], model = 'voyage-3', input_type = 'query').embeddings
+    coll = chroma_client.get_collection(state['coll_name'])
+    docs = coll.query(query_embeddings=embeddings, include= ['metadatas', 'documents'], n_results = 3)
+    return {'rag_results':{
+        'ids': docs['ids'][0],
+        'docs': docs['documents'][0]
+    }}
 
-graph.add_node(breaks)
-graph.add_node(rag)
-graph.add_node(synthesis)
-graph.add_node(report)
+def answer(state: overallstate) -> dict:
+    system = 'You are a helpful assistant. Answer the question using ONLY the provided sources. Cite sources inline as [source_id].'
+    rag = state['rag_results']
+    if isinstance(rag, str):
+        try:
+            rag = json.loads(rag)
+        except (json.JSONDecodeError, TypeError):
+            print('Invalid format. Expected: {"ids": [...], "docs": [...]}')
+            return {'result': 'Aborted — invalid rag_results format provided.'}
+    sources = "\n".join([
+        f"{rag['ids'][i]}: {rag['docs'][i]}"
+        for i in range(len(rag['ids']))
+    ])
+    prompt = f"Question: {state['question']}\nSources:\n{sources}"
+    response = claude(system, prompt)
+    return {'result': response}
 
-graph.add_edge(START,'breaks')
-graph.add_edge('breaks','rag')
-graph.add_edge('rag','synthesis')
-graph.add_edge('synthesis','report')
-graph.add_edge('report',END)
+graph1 = StateGraph(overallstate,input_schema=inputstate,output_schema=outputstate)
 
-app = graph.compile()
+graph1.add_node(breaks)
+graph1.add_node(rag)
+graph1.add_node(synthesis)
+graph1.add_node(report)
+
+graph1.add_edge(START,'breaks')
+graph1.add_edge('breaks','rag')
+graph1.add_edge('rag','synthesis')
+graph1.add_edge('synthesis','report')
+graph1.add_edge('report',END)
+
+graph2 = StateGraph(overallstate,input_schema=inputstate,output_schema=outputstate)
+
+graph2.add_node(retrieve)
+graph2.add_node(answer)
+
+graph2.add_edge(START,'retrieve')
+graph2.add_edge('retrieve','answer')
+graph2.add_edge('answer',END)
+
+mode = input('Mode (research/query): ').strip()
+
 question = input('Question: ')
 coll = input('Collection name: ')
-
-result = app.invoke({'question':question, 'coll_name':coll})
-
-# 1. compile with checkpointer + interrupt
 checkpointer = MemorySaver()
-app = graph.compile(checkpointer=checkpointer, interrupt_before=['report'])
 
-# 2. first invoke — graph halts before report
-config = {'configurable': {'thread_id': '1'}}
-app.invoke({'question': question, 'coll_name': coll}, config=config)
+if mode == 'research':
 
-# 3. inspect state, optionally edit it
-current_state = app.get_state(config)
-print(current_state.values['synthesis'])
+    app = graph1.compile(checkpointer=checkpointer, interrupt_before=['report'])
 
-approval = input('Approve? (y/edit): ')
-if approval != 'y':
-    edited = input('Enter revised synthesis: ')
-    app.update_state(config, {'synthesis': edited})
+    config = {'configurable': {'thread_id': '1'}}
+    app.invoke({'question': question, 'coll_name': coll}, config=config)
 
-# 4. resume — pass None to continue from checkpoint
-result = app.invoke(None, config=config)
-print(result)
+    current_state = app.get_state(config)
+    print(current_state.values['synthesis'])
+
+    approval = input('Approve? (y/edit): ')
+    if approval != 'y':
+        edited = input('Enter revised synthesis: ')
+        app.update_state(config, {'synthesis': edited})
+
+    result = app.invoke(None, config=config)
+    print(result)
+
+elif mode =='query':
+    app = graph2.compile(checkpointer=checkpointer, interrupt_before= ['answer'])
+
+    config = {'configurable': {'thread_id': '2'}}
+    app.invoke({'question': question, 'coll_name': coll}, config=config)
+
+    current_state = app.get_state(config)
+    print(current_state.values['rag_results'])
+
+    approval = input('Approve? (y/edit): ')
+    if approval != 'y':
+        edited = input('Enter revised documents: ')
+        app.update_state(config, {'rag_results': edited})
+
+    result = app.invoke(None, config=config)
+    print(result)
+
+else:
+    print('Mode unavailable.')
