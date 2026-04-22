@@ -5,9 +5,11 @@ Stateful multi-step AI pipelines built with LangGraph. Each script demonstrates 
 ## Projects
 
 ### calculator.py
+
 A string arithmetic calculator implemented as a LangGraph graph. Parses a natural language string of numbers and operators, then routes through multiply/divide and plus/minus nodes respecting standard operator precedence. Loops back through the graph until all operations are resolved.
 
 **Graph flow:**
+
 ```
 START → read → route → multiplydivide ↘
                      ↘ plusminus      → route (loop until resolved) → answer → END
@@ -19,9 +21,11 @@ START → read → route → multiplydivide ↘
 ---
 
 ### document_analyzer.py
+
 A PDF document analyzer that classifies documents using Claude and extracts structured information based on document type.
 
 **Graph flow:**
+
 ```
 START → extract → classify → researchpaper → summary → END
                            ↘ news          → summary → END
@@ -31,15 +35,32 @@ START → extract → classify → researchpaper → summary → END
 
 ---
 
-### research_workflow.py
-A multi-step research pipeline that takes a user question, breaks it into sub-questions, retrieves relevant documents from a ChromaDB vector store via Voyage AI embeddings, synthesizes findings, and generates a cited report.
+### ingest.py
+
+A document ingestion pipeline that reads local `.pdf`, `.txt`, or `.md` files, chunks content by sentence-aware word windows, generates Voyage AI embeddings, and stores vectors in a ChromaDB Cloud collection.
 
 **Graph flow:**
+
 ```
-START → breaks → rag → synthesis → [HITL interrupt] → report → END
+START → extract → chunk → embed_and_store → END
 ```
 
-**Concepts demonstrated:** RAG inside a LangGraph graph, Voyage AI embeddings, ChromaDB Cloud integration, input/output schemas, multi-node state accumulation, human-in-the-loop interrupts, checkpointing with MemorySaver
+**Concepts demonstrated:** ingestion workflow design, PDF/text extraction, chunking with overlap, batched embeddings with retry on rate limits, ChromaDB Cloud persistence, input/output schemas
+
+---
+
+### research.py
+
+A dual-mode RAG workflow for either deep research or fast query answering. In `research` mode, it decomposes questions, retrieves evidence for each sub-question, synthesizes findings, and generates a cited report. In `query` mode, it retrieves top matching documents and answers directly with citations.
+
+**Graph flow:**
+
+```
+research mode: START → breaks → rag → synthesis → [HITL interrupt] → report → END
+query mode:    START → retrieve → [HITL interrupt] → answer → END
+```
+
+**Concepts demonstrated:** multi-graph architecture, RAG with Voyage AI + ChromaDB Cloud, cited answer/report generation, schema-validated state, human-in-the-loop interrupts, checkpointing with MemorySaver
 
 ## Setup
 
@@ -50,6 +71,7 @@ py -3.11 -m pip install -r requirements.txt
 ```
 
 Copy `.env.example` to `.env` and add your Anthropic API key:
+
 ```bash
 cp .env.example .env
 ```
@@ -73,7 +95,7 @@ chromadb
 
 ## Architecture
 
-Both scripts use LangGraph's `StateGraph` with typed state via `TypedDict`. Nodes return partial dicts — only updated keys — and LangGraph merges them into the shared state. Conditional routing is handled by pure Python functions that return node name strings, keeping routing logic fully transparent and testable.
+The workflows use LangGraph's `StateGraph` with typed state via `TypedDict`. Nodes return partial dicts - only updated keys - and LangGraph merges them into shared state. This keeps each step focused while preserving end-to-end context across the pipeline.
 
 Input and output schemas are enforced via `input_schema` and `output_schema` parameters on `StateGraph`, restricting what the caller passes in and what gets returned.
 
@@ -82,3 +104,4 @@ Input and output schemas are enforced via `input_schema` and `output_schema` par
 - [LangGraph](https://langchain-ai.github.io/langgraph/) — stateful graph orchestration
 - [Anthropic API](https://docs.anthropic.com) — document classification and extraction
 - [pypdf](https://pypdf.readthedocs.io) — PDF text extraction
+
